@@ -1,0 +1,690 @@
+---
+title: "Untitled"
+output: html_document
+---
+
+
+GOAL
+
+I have been wondered how people decide the used car prices. The purpose of this project is to improve a statistical model to predict selling price of cars. I am going to use the historical car data that have all different brands to predicting the selling prices of cars and compare the results. 
+
+
+
+
+Loading and Packages
+This project uses past used car prices data from kaggle, which has more than 8000 records. Here are some of key variables that are helpful to be aware of for this project :
+
+Year - year of the car when it was bought (started from 1983 to 2020)
+
+selling_price - price that car is being sold
+
+km_driven - Number of kilometers the car is driven
+
+fuel - Fuel type of car (petrol / diesel / CNG / LPG / electric)
+
+transmission - Gear transmission of the car (Automatic/Manual)
+
+seller_type - tells if a seller is individual or dealer
+
+Owner - Number of previous onwers of the car
+
+
+```{r,include=FALSE}
+
+
+library(class)
+library(dplyr)
+library(ggplot2)
+library(tidymodels)
+library(tidyverse)
+library(stringr)
+library(purrr)
+library(Amelia)
+library(GGally)
+library(caret)
+library(relaimpo)
+library(corrplot)
+
+
+
+
+
+setwd("/Users/jaeinshin/desktop/PSTAT131")
+vehicles = read.csv("Car details v3.csv")
+summary(vehicles)
+head(vehicles)
+
+```
+
+
+
+
+Cleaning
+
+remove incomplete rows
+There are 221 incomplete rows in the dataset, and I am going to remove incomplete rows.
+
+```{r}
+count(vehicles)
+sum(is.na(vehicles))
+
+```
+
+
+```{r}
+row_status <- complete.cases(vehicles)
+vehicles <- vehicles[row_status,]
+sum(is.na(vehicles))
+sapply(vehicles, function(x) sum(is.na(x)))
+
+
+```
+
+
+
+Visualization
+
+Since I deleted all the incomplete data(NA), Now I am going to visualize the data with various variation for better understanding of dataset.
+
+The highest number of cars is Maruti brand, followed by Hyundai, Mahindra and tata brand.
+
+```{r}
+
+vehicles$name <- word(vehicles$name,1)
+ggplot(data=vehicles, aes(x=name, fil=name)) + geom_bar() + theme(axis.text.x = element_text(angle = 90)) 
+count(vehicles, name)
+
+```
+
+
+```{r}
+
+ggplot(vehicles, aes(x=selling_price/1000)) + 
+  geom_histogram(colour=4, fill = "white", bins=100)+
+  labs(x='Selling Price(Thousands)') + labs(title = "Histogram Graph for Selling Price") + scale_x_continuous(trans='log10')
+
+
+```
+According to this graph, we are able to check the majority of cars are sold out between the range of 1e+05 and 1e+06. 
+
+
+
+```{r}
+
+vehicles %>%
+filter(selling_price<700000,
+       km_driven<700000) %>%
+  ggplot(aes(x=fuel,y=selling_price,fill=fuel))+geom_boxplot()+ stat_summary(fun="mean")
+
+
+```
+
+
+According to this boxplot, we can check the distribution of selling price along with fuel type. We can see selling price of LPG car is the lowest, whereas Diesel car is at higher selling price. And for Petrol type car, we can see mean value of cars are higher than the middle car value. We can see there are less number of cars that have high selling price.
+
+
+```{r}
+vehicles %>%
+  ggplot()+
+    geom_point(aes(year,(selling_price))) +
+    xlab("Year")+
+    ylab("Selling Price")+
+    ggtitle("Year vs Selling Price")
+```
+
+
+According to the plot we have, we can see the more recently car prices have a higher selling prices. 
+
+
+
+```{r}
+vehicles %>%
+  filter(selling_price <5000000, km_driven < 400000) %>%
+  ggplot(aes(x=selling_price, y=km_driven)) + geom_point() +geom_smooth()+ labs(title="Selling price vs Distance Driven", x="Selling price", y="distance driven")
+
+
+```
+
+According to this plot, we can see when kilometer driven goes up, the selling price goes down. 
+
+
+
+
+
+
+```{r}
+
+vehicles$owner = factor(vehicles$owner,levels=c('First Owner','Second Owner','Third Owner','Fourth & Above Owner'))
+
+vehicles %>%
+filter(selling_price<800000,
+       km_driven<100000) %>%
+  ggplot(aes(x=owner,y=selling_price,fill=owner))+geom_boxplot(show.legend = FALSE)+ stat_summary(fun="mean",show.legend = FALSE)
+```
+
+
+According to this boxplot, we can  see the prices of cars are in order of First Owner > Second Owner > Third Owner > Fourth & Above Onwer. 
+
+
+
+In order to check the correlation between all the variables, and set the mode as regression, I am going to make all the variables as numeric value and delete the useless units. 
+
+
+I am going to remove the each unit from mileage, engine, max_power, seats and converting them to numeric value
+
+```{r}
+vehicles$mileage <- str_replace(vehicles$mileage, 'kmpl', '')
+vehicles$mileage <- str_replace(vehicles$mileage, 'km/kg', '')
+vehicles$mileage <- as.numeric(vehicles$mileage)
+```
+
+
+```{r}
+vehicles$engine <- str_replace(vehicles$engine, 'CC', '')
+vehicles$engine <- as.numeric(vehicles$engine)
+
+```
+
+
+```{r}
+vehicles$max_power <- str_replace(vehicles$max_power, 'bhp', '')
+vehicles$max_power <- as.numeric(vehicles$max_power)
+vehicles$max_power[is.na(vehicles$max_power)]<-mean(vehicles$max_power,na.rm=TRUE)
+```
+
+```{r}
+vehicles$seats <- as.numeric(vehicles$seats)
+```
+
+```{r}
+summary(vehicles)
+```
+
+
+
+Now I am going to change the character values from transmission, owner, seller_type, fuel to numeric value
+
+```{r}
+vehicles$transmission <- str_replace(vehicles$transmission, 'Manual', "1")
+vehicles$transmission <- str_replace(vehicles$transmission, 'Automatic', "0")
+vehicles$transmission <- as.numeric(vehicles$transmission)
+count(vehicles, transmission)
+```
+
+
+```{r}
+vehicles$owner <- str_replace(vehicles$owner, 'First Owner', "0")
+vehicles$owner <- str_replace(vehicles$owner, 'Second Owner', "1")
+vehicles$owner <- str_replace(vehicles$owner, 'Third Owner', "2")
+vehicles$owner <- str_replace(vehicles$owner, 'Fourth & Above Owner', "3")
+vehicles$owner <- str_replace(vehicles$owner, 'Test Drive Car', "4")
+vehicles$owner <- as.numeric(vehicles$owner)
+vehicles$owner[is.na(vehicles$owner)]<-mean(vehicles$owner,na.rm=TRUE)
+
+count(vehicles, owner)
+```
+
+
+
+```{r}
+vehicles$seller_type <- str_replace(vehicles$seller_type, "Trustmark Dealer", "0")
+vehicles$seller_type <- str_replace(vehicles$seller_type, "Dealer", "1")
+vehicles$seller_type <- str_replace(vehicles$seller_type, "Individual", "2")
+vehicles$seller_type <- as.numeric(vehicles$seller_type)
+count(vehicles, seller_type)
+```
+
+
+```{r}
+vehicles$fuel <- str_replace(vehicles$fuel, 'Diesel', "0")
+vehicles$fuel <- str_replace(vehicles$fuel, 'Petrol', "1")
+vehicles$fuel <- str_replace(vehicles$fuel, 'CNG', "2")
+vehicles$fuel <- str_replace(vehicles$fuel, 'LPG', "3")
+vehicles$fuel <- as.numeric(vehicles$fuel)
+count(vehicles, fuel)
+
+
+```
+
+
+
+
+
+Checking the Correlation between varialbes
+
+I am going to change all the car brand names to numbers based on the number of cars in the dataset. 
+
+
+```{r}
+vehicles$name <- str_replace(vehicles$name, 'Maruti', '0')
+vehicles$name <- str_replace(vehicles$name, 'Skoda', '1')
+vehicles$name <- str_replace(vehicles$name, 'Honda', '2')
+vehicles$name <- str_replace(vehicles$name, 'Hyundai', '3')
+vehicles$name <- str_replace(vehicles$name, 'Toyota', '4')
+vehicles$name <- str_replace(vehicles$name, 'Ford', '5')
+vehicles$name <- str_replace(vehicles$name, 'Renault', '6')
+vehicles$name <- str_replace(vehicles$name, 'Mahindra', '7')
+vehicles$name <- str_replace(vehicles$name, 'Tata', '8')
+vehicles$name <- str_replace(vehicles$name, 'Chevrolet', '9')
+vehicles$name <- str_replace(vehicles$name, 'Fiat', '10')
+vehicles$name <- str_replace(vehicles$name, 'Datsun', '11')
+vehicles$name <- str_replace(vehicles$name, 'Jeep', '12')
+vehicles$name <- str_replace(vehicles$name, 'Mercedes-Benz', '13')
+vehicles$name <- str_replace(vehicles$name, 'Mitsubishi', '14')
+vehicles$name <- str_replace(vehicles$name, 'Audi', '15')
+vehicles$name <- str_replace(vehicles$name, 'Volkswagen', '16')
+vehicles$name <- str_replace(vehicles$name, 'BMW', '17')
+vehicles$name <- str_replace(vehicles$name, 'Nissan', '18')
+vehicles$name <- str_replace(vehicles$name, 'Lexus', '19')
+vehicles$name <- str_replace(vehicles$name, 'Jaguar', '20')
+vehicles$name <- str_replace(vehicles$name, 'Land', '21')
+vehicles$name <- str_replace(vehicles$name, 'MG', '22')
+vehicles$name <- str_replace(vehicles$name, 'Volvo', '23')
+vehicles$name <- str_replace(vehicles$name, 'Daewoo', '24')
+vehicles$name <- str_replace(vehicles$name, 'Kia', '25')
+vehicles$name <- str_replace(vehicles$name, 'Force', '26')
+vehicles$name <- str_replace(vehicles$name, 'Ambassador', '27')
+vehicles$name <- str_replace(vehicles$name, 'Ashok', '28')
+vehicles$name <- str_replace(vehicles$name, 'Isuzu', '29')
+vehicles$name <- str_replace(vehicles$name, 'Opel', '30')
+vehicles$name <- str_replace(vehicles$name, 'Peugeot', '31')
+
+vehicles$name <- as.numeric(vehicles$name)
+summary(vehicles)
+```
+
+
+```{r}
+vehicles$seats <- as.numeric(vehicles$seats)
+vehicles$seats[is.na(vehicles$seats)]<-median(vehicles$seats,na.rm=TRUE)
+vehicles <- subset (vehicles, select = -torque)
+```
+
+
+```{r}
+library(corrplot)
+corrplot(cor(vehicles), type="full", 
+         method ="color", title = "Correlation for all variables", 
+         mar=c(0,1,1,0), tl.cex= 0.6, outline= T, tl.col="indianred4")
+
+```
+
+
+```{r}
+round(cor(vehicles),3)
+
+```
+
+
+Beside name, we can tell selling price is highly correlated with max_power, year, and engine. 
+
+
+
+Split the data
+
+The data was split in a 80% training, 20% testing split. Stratified sampling was used as sellping price distribution was skewed. 
+
+```{r}
+vehicles_split <- vehicles %>% 
+  initial_split(strata = selling_price, prop = 0.8)
+vehicles_train <- training(vehicles_split)
+vehicles_test <- testing(vehicles_split)
+dim(vehicles_train)
+dim(vehicles_test)
+
+```
+The training data set has about 6,300 + observations and the testing data set has under 2,000 observations.
+
+
+
+
+
+I made a vehicles_recipe that let the model know which dataset I am using in my model and which is the predictor and which attribute I am going to predict. 
+
+I used mode as a "regression" instead of "classification" for all four of models because I changed all my data to numerical value, and regression model predicts a numeric or continuous value while classification model predicts a class label or group membership. 
+
+I made a model specification for each model that let the model knows which regression model I am going to use.
+
+Next, I made a tibble of values from 1 to 10 for all of models beside svm model with a step function of 2 and then use tune_grid function to get means of different number. I follow this step in order to get the minimal root mean square. 
+
+
+```{r}
+set.seed(4141)
+vehicles_recipe <- recipe(selling_price~name+year+km_driven+seller_type+mileage+transmission+max_power+engine, data=vehicles_train) %>% step_dummy(all_nominal_predictors()) %>% step_normalize(all_predictors())
+
+vehicles_recipe %>% prep() %>% bake(vehicles_train)
+
+
+
+```
+
+
+```{r}
+knn_model <-
+  nearest_neighbor(
+    neighbors = tune(),
+    mode = "regression") %>%
+  set_engine("kknn")
+
+vehicles_vfold <- vfold_cv(vehicles_train, v=5, strata=selling_price)
+
+knn_workflow <- workflow() %>%
+  add_model(knn_model) %>%
+  add_recipe(vehicles_recipe)
+
+
+
+```
+
+
+
+
+
+```{r}
+set.seed(1010)
+vehicles_grid <- tibble(neighbors=seq(from=1, to=10, by=2))
+
+vehicles_results <- knn_workflow%>%
+    tune_grid(resamples=vehicles_vfold, grid=vehicles_grid) 
+    
+    
+
+```
+
+
+
+```{r}
+autoplot(vehicles_results, metric = "rmse")
+```
+
+```{r}
+show_best(vehicles_results, metric = "rmse")
+```
+
+
+In the graph and chart above, we are able to see neighbors need for the minimal rmse is neighbors = 3.
+
+
+I added vehicles_fit with a workflow where I add knn model, recipe and fit the model into vehicles_train. And then I use the model to predict vehicles_test and collect the metrics, then store the results into vehicles_summary.
+
+```{r}
+vehicles_spec <- nearest_neighbor(weight_func="rectangular", neighbors=3) %>%
+    set_engine("kknn")%>%
+    set_mode("regression")
+vehicles_fit <- workflow() %>%
+    add_recipe(vehicles_recipe) %>%
+    add_model(vehicles_spec)%>%
+    fit(data=vehicles_train)
+vehicles_summary <- vehicles_fit %>%
+    predict(vehicles_test) %>%
+    bind_cols(vehicles_test) %>%
+    metrics(truth=selling_price, estimate=.pred) %>%
+    filter(.metric=="rmse")
+vehicles_summary
+
+
+
+
+```
+
+```{r}
+augment(vehicles_fit, new_data = vehicles_test) %>%
+  ggplot(aes(selling_price, .pred)) +
+  geom_abline() +
+  geom_point(alpha = 0.5)
+
+```
+
+
+
+
+
+SVM Model
+
+Instead of setting up the grid from 1 to 10 just like I did for other 3 modeling, I used different method by using grid_regular, where I fit a model at every combination of parameters, and range =c(-3, -1) with level of 10 for the cost value because cost value does not naturally integer. 
+
+```{r}
+library(kernlab)
+svm_model <-
+  svm_poly(
+    cost = tune(),
+    mode = "regression") %>%
+  set_engine("kernlab")
+```
+
+
+```{r}
+svm_workflow <- workflow() %>%
+  add_model(svm_model) %>%
+  add_recipe(vehicles_recipe)
+
+```
+
+
+```{r}
+set.seed(1212)
+
+vehicles_grid_svm <- grid_regular(cost(range = c(-3, -1)), levels = 10)
+
+vehicles_results_svm <- svm_workflow %>%
+    tune_grid(resamples=vehicles_vfold, grid=vehicles_grid_svm) 
+    
+```
+
+
+
+```{r}
+autoplot(vehicles_results_svm, metric = "rmse")
+```
+```{r}
+show_best(vehicles_results_svm, metric = "rmse")
+```
+
+According to both of chart and the graph above, we can tell the lowest rmse occur when cost value is equal to 0.2314687.
+
+```{r}
+vehicles_spec_svm <- svm_poly(cost=0.2314687) %>%
+    set_engine("kernlab")%>%
+    set_mode("regression")
+vehicles_fit_svm <- workflow() %>%
+    add_recipe(vehicles_recipe) %>%
+    add_model(vehicles_spec_svm)%>%
+    fit(data=vehicles_train)
+vehicles_summary_svm <- vehicles_fit_svm %>%
+    predict(vehicles_test) %>%
+    bind_cols(vehicles_test) %>%
+    metrics(truth=selling_price, estimate=.pred) %>%
+    filter(.metric=="rmse")
+vehicles_summary_svm
+```
+
+
+
+
+
+
+```{r}
+augment(vehicles_fit_svm, new_data = vehicles_test) %>%
+  ggplot(aes(selling_price, .pred)) +
+  geom_abline() +
+  geom_point(alpha = 0.5)
+```
+
+
+
+Random Forest Model
+
+```{r}
+rf_model <-
+  rand_forest(
+    mtry = tune(),
+    mode = "regression") %>%
+  set_engine("ranger")
+
+rf_workflow <- workflow() %>%
+  add_model(rf_model) %>%
+  add_recipe(vehicles_recipe)
+
+```
+
+
+
+```{r}
+set.seed(1213)
+
+vehicles_grid_rf <- tibble(mtry=seq(from=1, to=10, by=2))
+
+vehicles_results_rf <- rf_workflow %>%
+    tune_grid(resamples=vehicles_vfold, grid=vehicles_grid_rf) 
+
+```
+
+```{r}
+autoplot(vehicles_results_rf, metric = "rmse")
+```
+
+
+```{r}
+show_best(vehicles_results_rf, metric = "rmse")
+```
+
+
+According to both of chart and the graph above, we can tell the lowest rmse occur when mtry value is equal to 9.
+
+
+```{r}
+
+vehicles_spec_rf <- rand_forest(mtry=9) %>%
+    set_engine("ranger")%>%
+    set_mode("regression")
+vehicles_fit_rf <- workflow() %>%
+    add_recipe(vehicles_recipe) %>%
+    add_model(vehicles_spec_rf)%>%
+    fit(data=vehicles_train)
+vehicles_summary_rf <- vehicles_fit_rf %>%
+    predict(vehicles_test) %>%
+    bind_cols(vehicles_test) %>%
+    metrics(truth=selling_price, estimate=.pred) %>%
+    filter(.metric=="rmse")
+vehicles_summary_rf
+
+```
+
+
+```{r}
+augment(vehicles_fit_rf, new_data = vehicles_test) %>%
+  ggplot(aes(selling_price, .pred)) +
+  geom_abline() +
+  geom_point(alpha = 0.5)
+
+```
+
+
+
+Boost Tree Model 
+
+```{r}
+bt_model <-
+  boost_tree(
+    mtry = tune(),
+    mode = "regression") %>%
+  set_engine("xgboost")
+
+bt_workflow <- workflow() %>%
+  add_model(bt_model) %>%
+  add_recipe(vehicles_recipe)
+```
+
+
+```{r}
+set.seed(1218)
+
+vehicles_grid_bt <- tibble(mtry=seq(from=1, to=10, by=2))
+
+vehicles_results_bt <- bt_workflow %>%
+    tune_grid(resamples=vehicles_vfold, grid=vehicles_grid_bt) 
+
+```
+
+
+```{r}
+
+autoplot(vehicles_results_bt, metric = "rmse")
+```
+
+```{r}
+show_best(vehicles_results_bt, metric = "rmse")
+```
+
+According to both of chart and the graph above, we can tell the lowest rmse occur when mtry value is equal to 7.
+
+
+```{r}
+
+vehicles_spec_bt <- boost_tree(mtry=7) %>%
+    set_engine("xgboost")%>%
+    set_mode("regression")
+vehicles_fit_bt <- workflow() %>%
+    add_recipe(vehicles_recipe) %>%
+    add_model(vehicles_spec_bt)%>%
+    fit(data=vehicles_train)
+vehicles_summary_bt <- vehicles_fit_bt %>%
+    predict(vehicles_test) %>%
+    bind_cols(vehicles_test) %>%
+    metrics(truth=selling_price, estimate=.pred) %>%
+    filter(.metric=="rmse")
+vehicles_summary_bt
+```
+
+```{r}
+
+augment(vehicles_fit_bt, new_data = vehicles_test) %>%
+  ggplot(aes(selling_price, .pred)) +
+  geom_abline() +
+  geom_point(alpha = 0.5)
+
+
+
+
+
+```
+
+
+
+
+CONCLUSION
+
+
+```{r}
+Model <- c('K-nearest neighbors', 'Support Vector Machine', 'Random Forest', 'Boost Tree')
+vehicles_summary <- select_if(vehicles_summary, is.numeric)
+vehicles_summary_svm <- select_if(vehicles_summary_svm, is.numeric)
+vehicles_summary_rf <- select_if(vehicles_summary_rf, is.numeric)
+vehicles_summary_bt <- select_if(vehicles_summary_bt, is.numeric)
+RMSE <- c(vehicles_summary, vehicles_summary_svm, vehicles_summary_rf, vehicles_summary_bt)
+RMSE_value <- as.numeric(RMSE)
+
+Table <- data.frame(Model,RMSE_value)
+Table
+
+
+```
+
+After thorough analysis of the dataset, I was successful in making reasonable conclusions regarding the sale prices in used cars and automobile industry generally. 
+
+Root-Mean-Square-Error or RMSE measures how much error there is between two data sets. In the other words, It compares a predicted value and an observed or known value. Which means, when we have the smaller an RMSE value, the closer predicted and observed values are. 
+
+By using different machine learning models, I aimed to get better result that has lower error. My purpose was to predict the price of used cars having 7907 data entries after get rid of NA values.
+
+I used four different models, in the order of Knn model, SVM model, Random Forest model, Boost Tree model. Before I set up the model, I expected Boost-Tree model will bring the lowest RMSE value because Boost-Trees have a lot of model capacity, so it can model very complex decision boundries and relationships compare to Random Forest model. However, I realize that with all models with high capacity, it can lead to overfitting very quickly just like I learned from lab 7.
+
+From the above table, It can be concluded that Random Forest is the best model for the prediction for used car prices. Random Forest as a regression model gave the lowest RMSE values. 
+
+
+
+
+
+
+
+
+
