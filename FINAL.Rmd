@@ -1,17 +1,17 @@
 ---
-title: "Untitled"
+title: "Used car prediction project"
 output: html_document
 ---
 
 
-GOAL
+####GOAL
 
 I have been wondered how people decide the used car prices. The purpose of this project is to improve a statistical model to predict selling price of cars. I am going to use the historical car data that have all different brands to predicting the selling prices of cars and compare the results. 
 
 
 
 
-Loading and Packages
+####Loading and Packages
 This project uses past used car prices data from kaggle, which has more than 8000 records. Here are some of key variables that are helpful to be aware of for this project :
 
 Year - year of the car when it was bought (started from 1983 to 2020)
@@ -59,7 +59,7 @@ head(vehicles)
 
 
 
-Cleaning
+####Cleaning
 
 remove incomplete rows
 There are 221 incomplete rows in the dataset, and I am going to remove incomplete rows.
@@ -82,7 +82,7 @@ sapply(vehicles, function(x) sum(is.na(x)))
 
 
 
-Visualization
+####Visualization
 
 Since I deleted all the incomplete data(NA), Now I am going to visualize the data with various variation for better understanding of dataset.
 
@@ -92,7 +92,7 @@ The highest number of cars is Maruti brand, followed by Hyundai, Mahindra and ta
 
 vehicles$name <- word(vehicles$name,1)
 ggplot(data=vehicles, aes(x=name, fil=name)) + geom_bar() + theme(axis.text.x = element_text(angle = 90)) 
-count(vehicles, name)
+
 
 ```
 
@@ -114,7 +114,7 @@ According to this graph, we are able to check the majority of cars are sold out 
 vehicles %>%
 filter(selling_price<700000,
        km_driven<700000) %>%
-  ggplot(aes(x=fuel,y=selling_price,fill=fuel))+geom_boxplot()+ stat_summary(fun="mean")
+  ggplot(aes(x=fuel,y=selling_price,fill=fuel),message=FALSE,warning=FALSE)+geom_boxplot()+ stat_summary(fun="mean")
 
 
 ```
@@ -140,7 +140,7 @@ According to the plot we have, we can see the more recently car prices have a hi
 ```{r}
 vehicles %>%
   filter(selling_price <5000000, km_driven < 400000) %>%
-  ggplot(aes(x=selling_price, y=km_driven)) + geom_point() +geom_smooth()+ labs(title="Selling price vs Distance Driven", x="Selling price", y="distance driven")
+  ggplot(aes(x=selling_price, y=km_driven),message=FALSE,warning=FALSE) + geom_point() +geom_smooth()+ labs(title="Selling price vs Distance Driven", x="Selling price", y="distance driven")
 
 
 ```
@@ -250,7 +250,7 @@ count(vehicles, fuel)
 
 
 
-Checking the Correlation between varialbes
+####Checking the Correlation between varialbes
 
 I am going to change all the car brand names to numbers based on the number of cars in the dataset. 
 
@@ -320,7 +320,7 @@ Beside name, we can tell selling price is highly correlated with max_power, year
 
 
 
-Split the data
+####Split the data
 
 The data was split in a 80% training, 20% testing split. Stratified sampling was used as sellping price distribution was skewed. 
 
@@ -337,7 +337,7 @@ The training data set has about 6,300 + observations and the testing data set ha
 
 
 
-
+####Building the Recipe
 
 I made a vehicles_recipe that let the model know which dataset I am using in my model and which is the predictor and which attribute I am going to predict. 
 
@@ -358,6 +358,7 @@ vehicles_recipe %>% prep() %>% bake(vehicles_train)
 
 ```
 
+####Nearest Neighbors
 
 ```{r}
 knn_model <-
@@ -427,19 +428,12 @@ vehicles_summary
 
 ```
 
-```{r}
-augment(vehicles_fit, new_data = vehicles_test) %>%
-  ggplot(aes(selling_price, .pred)) +
-  geom_abline() +
-  geom_point(alpha = 0.5)
-
-```
 
 
 
 
 
-SVM Model
+####SVM Model
 
 Instead of setting up the grid from 1 to 10 just like I did for other 3 modeling, I used different method by using grid_regular, where I fit a model at every combination of parameters, and range =c(-3, -1) with level of 10 for the cost value because cost value does not naturally integer. 
 
@@ -502,17 +496,7 @@ vehicles_summary_svm
 
 
 
-
-```{r}
-augment(vehicles_fit_svm, new_data = vehicles_test) %>%
-  ggplot(aes(selling_price, .pred)) +
-  geom_abline() +
-  geom_point(alpha = 0.5)
-```
-
-
-
-Random Forest Model
+####Random Forest Model
 
 ```{r}
 rf_model <-
@@ -571,17 +555,8 @@ vehicles_summary_rf
 ```
 
 
-```{r}
-augment(vehicles_fit_rf, new_data = vehicles_test) %>%
-  ggplot(aes(selling_price, .pred)) +
-  geom_abline() +
-  geom_point(alpha = 0.5)
 
-```
-
-
-
-Boost Tree Model 
+####Boost Tree Model 
 
 ```{r}
 bt_model <-
@@ -636,23 +611,12 @@ vehicles_summary_bt <- vehicles_fit_bt %>%
 vehicles_summary_bt
 ```
 
-```{r}
-
-augment(vehicles_fit_bt, new_data = vehicles_test) %>%
-  ggplot(aes(selling_price, .pred)) +
-  geom_abline() +
-  geom_point(alpha = 0.5)
 
 
 
 
 
-```
-
-
-
-
-CONCLUSION
+####CONCLUSION
 
 
 ```{r}
@@ -674,11 +638,21 @@ After thorough analysis of the dataset, I was successful in making reasonable co
 
 Root-Mean-Square-Error or RMSE measures how much error there is between two data sets. In the other words, It compares a predicted value and an observed or known value. Which means, when we have the smaller an RMSE value, the closer predicted and observed values are. 
 
+
 By using different machine learning models, I aimed to get better result that has lower error. My purpose was to predict the price of used cars having 7907 data entries after get rid of NA values.
 
 I used four different models, in the order of Knn model, SVM model, Random Forest model, Boost Tree model. Before I set up the model, I expected Boost-Tree model will bring the lowest RMSE value because Boost-Trees have a lot of model capacity, so it can model very complex decision boundries and relationships compare to Random Forest model. However, I realize that with all models with high capacity, it can lead to overfitting very quickly just like I learned from lab 7.
 
 From the above table, It can be concluded that Random Forest is the best model for the prediction for used car prices. Random Forest as a regression model gave the lowest RMSE values. 
+
+And here is graph describing the performance of your best-fitting model on testing data
+```{r}
+augment(vehicles_fit_rf, new_data = vehicles_test) %>%
+  ggplot(aes(selling_price, .pred)) +
+  geom_abline() +
+  geom_point(alpha = 0.5)
+
+```
 
 
 
